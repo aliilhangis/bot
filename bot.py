@@ -5,12 +5,6 @@ from bs4 import BeautifulSoup
 import time
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 
 # Environment variables'dan token'ı al
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -24,95 +18,33 @@ FORM_FIELDS = {
     'description': os.getenv("FORM_DESCRIPTION_FIELD", 'entry.1802273569')
 }
 
-def setup_driver():
-    chrome_options = Options()
-    chrome_options.add_argument('--headless')
-    chrome_options.add_argument('--no-sandbox')
-    chrome_options.add_argument('--disable-dev-shm-usage')
-    chrome_options.binary_location = "/usr/bin/google-chrome"
-    service = Service('/usr/local/bin/chromedriver')
-    return webdriver.Chrome(service=service, options=chrome_options)
-
 def scrape_jobs(url, count):
     jobs = []
     try:
-        # BeautifulSoup ile deneyelim önce
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
         response = requests.get(url, headers=headers)
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Debug için HTML'i yazdır
-        print("HTML Content:", soup.prettify()[:500])  # İlk 500 karakteri göster
-        
-        # İş ilanlarını bul
         job_listings = soup.find_all('div', class_='jv-list-item')
         print(f"Found {len(job_listings)} job listings")
         
-        if not job_listings:
-            print("BeautifulSoup failed, trying Selenium...")
-            # Selenium ile dene
-            driver = setup_driver()
+        for job in job_listings[:count]:
             try:
-                driver.get(url)
-                time.sleep(5)  # Sayfanın yüklenmesi için bekle
+                vacancy = job.find('h3', class_='jv-list-item__title').text.strip()
+                description = job.find('div', class_='jv-list-item__description').text.strip()
+                contact_info = job.find('div', class_='jv-list-item__contact').text.strip()
                 
-                # Debug için sayfa kaynağını yazdır
-                print("Selenium page source:", driver.page_source[:500])
-                
-                wait = WebDriverWait(driver, 10)
-                job_elements = wait.until(
-                    EC.presence_of_all_elements_located((By.CLASS_NAME, "jv-list-item"))
-                )
-                
-                for job_element in job_elements[:count]:
-                    try:
-                        vacancy = job_element.find_element(By.CLASS_NAME, "jv-list-item__title").text.strip()
-                        job_link = job_element.find_element(By.TAG_NAME, "a").get_attribute("href")
-                        
-                        # Yeni sekmede aç
-                        driver.execute_script(f"window.open('{job_link}');")
-                        driver.switch_to.window(driver.window_handles[1])
-                        time.sleep(3)
-                        
-                        description = driver.find_element(By.CLASS_NAME, "jv-job-detail__description").text.strip()
-                        contact_info = driver.find_element(By.CLASS_NAME, "jv-job-detail__contact").text.strip()
-                        
-                        jobs.append({
-                            'email': contact_info,
-                            'vacancy': vacancy,
-                            'description': description
-                        })
-                        
-                        driver.close()
-                        driver.switch_to.window(driver.window_handles[0])
-                        
-                    except Exception as e:
-                        print(f"Individual job error: {str(e)}")
-                        continue
-                        
+                jobs.append({
+                    'email': contact_info,
+                    'vacancy': vacancy,
+                    'description': description
+                })
             except Exception as e:
-                print(f"Selenium error: {str(e)}")
-            finally:
-                driver.quit()
-        else:
-            # BeautifulSoup başarılı olduysa
-            for job in job_listings[:count]:
-                try:
-                    vacancy = job.find('h3', class_='jv-list-item__title').text.strip()
-                    description = job.find('div', class_='jv-list-item__description').text.strip()
-                    contact_info = job.find('div', class_='jv-list-item__contact').text.strip()
-                    
-                    jobs.append({
-                        'email': contact_info,
-                        'vacancy': vacancy,
-                        'description': description
-                    })
-                except Exception as e:
-                    print(f"BeautifulSoup job error: {str(e)}")
-                    continue
-                    
+                print(f"BeautifulSoup job error: {str(e)}")
+                continue
+                
     except Exception as e:
         print(f"Main scraping error: {str(e)}")
     
@@ -186,4 +118,4 @@ def main():
     application.run_polling(poll_interval=3.0, timeout=30)
 
 if __name__ == '__main__':
-    main() 
+    main()
