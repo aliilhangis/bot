@@ -119,3 +119,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+    
+application.run_polling(allowed_updates=Update.ALL_TYPES)
