@@ -13,9 +13,9 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 # Environment variables'dan token'ı al
-TOKEN = os.getenv("7864730776:AAHATu3EVYPWBphQfFeW8pC9-gbXqklA3L4")
-SHEET_URL = os.getenv("https://docs.google.com/spreadsheets/d/1Q_WmADNAQFeM1UjsKhY8AR3ql3EGqaK3Ly4reR8lOC8/edit?gid=0#gid=0")
-FORM_URL = os.getenv("https://forms.gle/WEJ4sj3RpBC48MJdA")
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+SHEET_URL = os.getenv("GOOGLE_SHEET_URL")
+FORM_URL = os.getenv("GOOGLE_FORM_URL")
 
 # Form field ID'leri
 FORM_FIELDS = {
