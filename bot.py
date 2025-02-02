@@ -20,7 +20,7 @@ else:
 gc = gspread.authorize(CREDENTIALS)
 
 # Google Sheets URL'ini çevresel değişkenden al
-SPREADSHEET_URL = os.getenv("GOOGLE_SHEETS_URL")
+SPREADSHEET_URL = os.getenv("https://docs.google.com/spreadsheets/d/1wBNDIZBneb0Vd7v7K2HpUYz3QGHhxZETgyX4IoNcFdw/edit?gid=0#gid=0")
 
 if not SPREADSHEET_URL:
     raise ValueError("Google Sheets URL'si bulunamadı!")
