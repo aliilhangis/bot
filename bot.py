@@ -1,123 +1,74 @@
-import os
-from datetime import datetime
+import logging
 import requests
-from bs4 import BeautifulSoup
+import gspread
+import json
 import time
+from bs4 import BeautifulSoup
+from oauth2client.service_account import ServiceAccountCredentials
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+import os
 
-# Environment variables'dan token'ı al
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-SHEET_URL = os.getenv("GOOGLE_SHEET_URL")
-FORM_URL = os.getenv("GOOGLE_FORM_URL")
+# Telegram Bot Token
+TOKEN = os.getenv("7681213704:AAEZ8HLwU_Wrh3gaDo5ppDs2lt9hh86ibzI")
 
-# Form field ID'leri
-FORM_FIELDS = {
-    'email': os.getenv("FORM_EMAIL_FIELD", 'entry.2079815819'),
-    'vacancy': os.getenv("FORM_VACANCY_FIELD", 'entry.99561878'),
-    'description': os.getenv("FORM_DESCRIPTION_FIELD", 'entry.1802273569')
-}
+# Google Sheets Bağlantısı
+SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+CREDENTIALS_PATH = "credentials.json"  # JSON dosyanızı yerel olarak saklayın
+CREDENTIALS = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_PATH, SCOPE)
+GC = gspread.authorize(CREDENTIALS)
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1wBNDIZBneb0Vd7v7K2HpUYz3QGHhxZETgyX4IoNcFdw/edit?gid=0#gid=0"  # Google Sheets linkiniz
 
-def scrape_jobs(url, count):
+# Loglama
+logging.basicConfig(level=logging.INFO)
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Merhaba! Web scraping botuna hoş geldin. /scrape komutunu kullanarak veri çekebilirsin.")
+
+async def scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Lütfen şu formatta yaz: <link> <adet>")
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.message.text.split()
+    if len(message) != 2:
+        await update.message.reply_text("Yanlış format! Doğru format: <link> <adet>")
+        return
+    
+    url, count = message
+    count = int(count)
+    await update.message.reply_text(f"{count} ilan çekiliyor... Lütfen bekleyin.")
+    
+    data = scrape_data(url, count)
+    sheet_name = f"Scrape_{int(time.time())}"
+    save_to_sheets(data, sheet_name)
+    
+    await update.message.reply_text(f"Veriler Google Sheets'e kaydedildi! Sheet adı: {sheet_name}")
+
+def scrape_data(url, count):
+    response = requests.get(url)
+    soup = BeautifulSoup(response.text, "html.parser")
     jobs = []
-    try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-        response = requests.get(url, headers=headers)
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        job_listings = soup.find_all('div', class_='jv-list-item')
-        print(f"Found {len(job_listings)} job listings")
-        
-        for job in job_listings[:count]:
-            try:
-                vacancy = job.find('h3', class_='jv-list-item__title').text.strip()
-                description = job.find('div', class_='jv-list-item__description').text.strip()
-                contact_info = job.find('div', class_='jv-list-item__contact').text.strip()
-                
-                jobs.append({
-                    'email': contact_info,
-                    'vacancy': vacancy,
-                    'description': description
-                })
-            except Exception as e:
-                print(f"BeautifulSoup job error: {str(e)}")
-                continue
-                
-    except Exception as e:
-        print(f"Main scraping error: {str(e)}")
+    
+    job_cards = soup.find_all("div", class_="card")[:count]
+    for job in job_cards:
+        title = job.find("h2").text.strip()
+        description = job.find("p").text.strip()
+        email = job.find("a", href=True)["href"].replace("mailto:", "")
+        jobs.append([title, description, email])
     
     return jobs
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Merhaba! Web scraping botuna hoş geldiniz.\n"
-        "Veri çekmek için /scrape komutunu kullanın."
-    )
+def save_to_sheets(data, sheet_name):
+    spreadsheet = GC.open_by_url(SPREADSHEET_URL)
+    sheet = spreadsheet.add_worksheet(title=sheet_name, rows="100", cols="3")
+    sheet.append_row(["Job Title", "Description", "Email"])
+    for row in data:
+        sheet.append_row(row)
 
-async def scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Lütfen URL ve çekilecek ilan sayısını girin.\n"
-        "Örnek format: https://site.com 10"
-    )
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        text = update.message.text.split()
-        if len(text) != 2:
-            await update.message.reply_text("Hatalı format! Örnek: URL SAYI")
-            return
-
-        url = text[0]
-        count = int(text[1])
-
-        await update.message.reply_text("Veriler çekiliyor, lütfen bekleyin...")
-
-        jobs = scrape_jobs(url, count)
-        
-        if not jobs:
-            await update.message.reply_text("Veri çekilemedi veya hiç ilan bulunamadı.")
-            return
-
-        save_to_sheets(jobs)
-        
-        await update.message.reply_text(
-            f"Veriler başarıyla kaydedildi!\n"
-            f"Google Sheets'i kontrol edebilirsiniz: {SHEET_URL}"
-        )
-
-    except Exception as e:
-        await update.message.reply_text(f"Bir hata oluştu: {str(e)}")
-
-def save_to_sheets(jobs):
-    try:
-        for job in jobs:
-            form_data = {
-                FORM_FIELDS['email']: job['email'],
-                FORM_FIELDS['vacancy']: job['vacancy'],
-                FORM_FIELDS['description']: job['description']
-            }
-            
-            response = requests.post(FORM_URL, data=form_data)
-            if response.status_code != 200:
-                print(f"Form submission error: {response.status_code}")
-            time.sleep(1)
-            
-    except Exception as e:
-        print(f"Sheets error: {str(e)}")
-
-def main():
-    application = Application.builder().token(TOKEN).build()
-
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("scrape", scrape))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-    print("Bot başlatılıyor...")
- 
-
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("scrape", scrape))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-
+    app.run_polling()
