@@ -1,74 +1,39 @@
-import logging
-import requests
-import gspread
 import json
-import time
-from bs4 import BeautifulSoup
-from oauth2client.service_account import ServiceAccountCredentials
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import os
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+from datetime import datetime
 
-# Telegram Bot Token
-TOKEN = os.getenv("7681213704:AAEZ8HLwU_Wrh3gaDo5ppDs2lt9hh86ibzI")
+# Google Sheets API için yetkilendirme
+credentials_json = os.getenv("GOOGLE_CREDENTIALS")
 
-# Google Sheets Bağlantısı
-SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-CREDENTIALS_PATH = "credentials.json"  # JSON dosyanızı yerel olarak saklayın
-CREDENTIALS = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_PATH, SCOPE)
-GC = gspread.authorize(CREDENTIALS)
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1wBNDIZBneb0Vd7v7K2HpUYz3QGHhxZETgyX4IoNcFdw/edit?gid=0#gid=0"  # Google Sheets linkiniz
+if credentials_json:
+    credentials_dict = json.loads(credentials_json)
+    CREDENTIALS = ServiceAccountCredentials.from_json_keyfile_dict(
+        credentials_dict, 
+        ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    )
+else:
+    raise ValueError("Google Sheets kimlik bilgileri bulunamadı!")
 
-# Loglama
-logging.basicConfig(level=logging.INFO)
+# Google Sheets'e bağlan
+gc = gspread.authorize(CREDENTIALS)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Merhaba! Web scraping botuna hoş geldin. /scrape komutunu kullanarak veri çekebilirsin.")
+# Google Sheets URL'ini çevresel değişkenden al
+SPREADSHEET_URL = os.getenv("GOOGLE_SHEETS_URL")
 
-async def scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Lütfen şu formatta yaz: <link> <adet>")
+if not SPREADSHEET_URL:
+    raise ValueError("Google Sheets URL'si bulunamadı!")
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = update.message.text.split()
-    if len(message) != 2:
-        await update.message.reply_text("Yanlış format! Doğru format: <link> <adet>")
-        return
-    
-    url, count = message
-    count = int(count)
-    await update.message.reply_text(f"{count} ilan çekiliyor... Lütfen bekleyin.")
-    
-    data = scrape_data(url, count)
-    sheet_name = f"Scrape_{int(time.time())}"
-    save_to_sheets(data, sheet_name)
-    
-    await update.message.reply_text(f"Veriler Google Sheets'e kaydedildi! Sheet adı: {sheet_name}")
+# Google Sheets dosyasını aç
+spreadsheet = gc.open_by_url(SPREADSHEET_URL)
 
-def scrape_data(url, count):
-    response = requests.get(url)
-    soup = BeautifulSoup(response.text, "html.parser")
-    jobs = []
-    
-    job_cards = soup.find_all("div", class_="card")[:count]
-    for job in job_cards:
-        title = job.find("h2").text.strip()
-        description = job.find("p").text.strip()
-        email = job.find("a", href=True)["href"].replace("mailto:", "")
-        jobs.append([title, description, email])
-    
-    return jobs
+# Yeni bir çalışma sayfası ekle (tarih ve saat ile isimlendirilmiş)
+sheet_name = datetime.now().strftime("Data_%Y%m%d_%H%M%S")
+worksheet = spreadsheet.add_worksheet(title=sheet_name, rows="100", cols="10")
 
-def save_to_sheets(data, sheet_name):
-    spreadsheet = GC.open_by_url(SPREADSHEET_URL)
-    sheet = spreadsheet.add_worksheet(title=sheet_name, rows="100", cols="3")
-    sheet.append_row(["Job Title", "Description", "Email"])
-    for row in data:
-        sheet.append_row(row)
+# Örnek veri ekle
+worksheet.append_row(["Tarih", "Durum"])
+worksheet.append_row([datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Başarıyla eklendi!"])
 
-if __name__ == "__main__":
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("scrape", scrape))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
-    app.run_polling()
+print(f"Yeni çalışma sayfası eklendi: {sheet_name}")
